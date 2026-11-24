@@ -2,25 +2,53 @@ name: APK oluştur
 on:
   push:
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Zip var mı?
+        run: |
+          if ls *.zip >/dev/null 2>&1; then echo "ZIP=1" >> $GITHUB_ENV; else echo "Zip yok, derleme atlandı."; fi
       - uses: actions/setup-java@v4
+        if: env.ZIP == '1'
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v3
+        if: env.ZIP == '1'
         with:
           gradle-version: '8.7'
       - name: Zip'i aç
-        run: for f in *.zip; do unzip -o "$f"; done
-      - name: APK derle
+        if: env.ZIP == '1'
+        run: for f in *.zip; do unzip -o -q "$f"; done
+      - name: Sürümü ve depo adını oyuna yaz
+        if: env.ZIP == '1'
         run: |
-          cd "$(dirname "$(find . -name settings.gradle -not -path './.git/*' | head -1)")"
+          D="$(dirname "$(find . -name settings.gradle -not -path './.git/*' | head -1)")"
+          echo "PROJE=$D" >> $GITHUB_ENV
+          V=$(grep -oP "versionName '\K[^']+" "$D/app/build.gradle")
+          echo "SURUM=$V" >> $GITHUB_ENV
+          sed -i "s#__YEO_REPO__#${GITHUB_REPOSITORY}#g; s#__YEO_VER__#${V}#g" "$D/app/src/main/assets/index.html"
+          echo "Sürüm: $V"
+      - name: APK derle
+        if: env.ZIP == '1'
+        run: |
+          cd "$PROJE"
           gradle assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/*.apk "$GITHUB_WORKSPACE/OyunDunyasi-${SURUM}.apk"
       - uses: actions/upload-artifact@v4
+        if: env.ZIP == '1'
         with:
           name: yusuf-emirin-oyunu-apk
-          path: '**/app/build/outputs/apk/debug/*.apk'
+          path: OyunDunyasi-*.apk
+      - name: Sürüm yayınla (telefonlara güncelleme gider)
+        if: env.ZIP == '1'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.SURUM }}
+          name: Oyun Dünyası ${{ env.SURUM }}
+          files: OyunDunyasi-${{ env.SURUM }}.apk
+          make_latest: true
